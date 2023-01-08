@@ -1,6 +1,3 @@
-# WLVCPP
-This repository includes the code of the ML CPPs predictor
-
 WLVCPP is a machine learning predictor of cell penetrating peptides
 
 =============
@@ -15,7 +12,7 @@ rand_train.fa   ,  recep_train.fa   ,  candidates.fa
 I- The unconditional way (Using Google colab): 
 Steps
 	1. open a new Google colab notebook on your gmail account and rename it
-	2. copy the code from WLVCPP.py file in to a cell 
+	2. copy the whole code from WLVCPP.py file into a cell 
 	3. upload the input files		
 	4. run the cell > type the name of your fasta file > hit enter    
  
@@ -32,3 +29,10 @@ Alternatively (from the terminal (on Linux) or cmd (on Windows)):
 	3. navigate to the folder where the script and the input files are
 	4. type: python WLVCPP.py candidates.fa
  
+===============
+Important notes
+===============
+	1. accurate results are not guranteed if any change happend to the input files rand_train.fa and recep_train.fa 
+	2. the script was suited to deal with various incorrectly formatted inputs, however providing proper fasta format is highly encouraged 
+
+
