@@ -393,4 +393,8 @@ else:
     print('"',fasta_file,'"', "doesn't exist in the current/specified directory")
     print("Possible causes: Wrong spelling, Missing file extension, or Wrong path")
 print('_____________________________________________________________')
+
+
+
+
 print('=============================================================\n\n')
