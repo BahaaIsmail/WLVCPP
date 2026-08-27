@@ -23,7 +23,7 @@ pd.options.mode.chained_assignment = None  # default='warn'
 def from_fasta(fasta_file): 
     peptides, cpps , ncpps = [],[],[]
     sf = open(fasta_file)
-    for line in sf : 
+    for line in sf :
         if 'cpp' in line : 
             line = sf.readline()
             pep = line.strip('\n')
@@ -195,13 +195,72 @@ def add_corr(data,adds,subs):
     return data 
 
 
+############################################################################################################
+### FIX for batch-dependent scoring bug
+###
+### engineer()/categorise() above bin every feature into deciles using the
+### min/max/quantiles of whatever dataframe is passed in. That's correct
+### for the TRAINING data (the "batch" is the fixed training set), but
+### calc_predictions() was also calling engineer() on the QUERY peptides,
+### which means a peptide's score depended on what else was submitted
+### alongside it in the same request. With a single query peptide, min==max
+### for every column, so every feature collapsed to a constant 0.1
+### regardless of the peptide's actual composition -- confirmed: three very
+### different peptides submitted alone all scored ~0.84-0.85, and even the
+### SAME peptide gave different scores on separate runs (see PR description).
+###
+### The fix: learn the decile bucket boundaries ONCE from the training
+### data (fit_reference_stats), and apply those FIXED boundaries to query
+### peptides (engineer_with_reference) instead of recomputing them from
+### the query batch. A peptide's score no longer depends on what else is
+### submitted alongside it.
+############################################################################################################
+
+def fit_reference_stats(data):
+    stats = {}
+    for c in data.columns :
+        if not c in ['cpp','peps'] :
+            minv = min(data[c])
+            logged = np.log1p(data[c]-minv+1)
+            q1 = logged.quantile(0.25)
+            q3 = logged.quantile(0.75)
+            iqr = q3-q1
+            low = q1-1.5*iqr
+            up  = q3+1.5*iqr
+            clipped = logged.clip(lower=low, upper=up)
+            mn, mx = float(clipped.min()), float(clipped.max())
+            d = (mx-mn)/10
+            stats[c] = {'minv':float(minv),'low':float(low),'up':float(up),'mn':mn,'mx':mx,'d':d}
+    return stats
+
+
+def engineer_with_reference(data, ref):
+    for c in data.columns :
+        if not c in ['cpp','peps'] :
+            s = ref[c]
+            raw_clamped = data[c].clip(lower=s['minv'])   # don't let log1p see < -1
+            logged = np.log1p(raw_clamped - s['minv'] + 1)
+            clipped = logged.clip(lower=s['low'], upper=s['up'])
+            vals = list(clipped)
+            for j in range(len(vals)) :
+                if s['d'] == 0 :
+                    vals[j] = 0.1
+                else :
+                    for i in range(1,11) :
+                        if vals[j] <= s['mn']+i*s['d'] :
+                            vals[j] = i/10
+                            break
+            data[c] = vals
+    return data
+
+
 
 
 ############################################################################################################
 ### general definitions 
 seed = 43
 cv_split = ShuffleSplit(n_splits = 10, test_size = .25, train_size = .75, random_state = seed )
-model = SVC(max_iter = 10000,probability=True)
+model = SVC(max_iter = 10000,probability=True, random_state=seed)
 
 ############################################################################################################
 
@@ -258,7 +317,6 @@ def calc_predictions(names, peps):
         return    
 
     print('Processing ...\n\n')
-    S0 = datset_builder(peps,[])
     preds = []
     for clf in classifiers : 
         fa = classifiers[clf]['fa']
@@ -269,12 +327,19 @@ def calc_predictions(names, peps):
         cpps, ncpps = from_fasta(clf+'_train.fa')
         data = datset_builder(cpps, ncpps)
         data = add_corr(data,adds,subs)
-        data = engineer(data, 0.9)
+        # Learn the ranking scale from the TRAINING data only, once.
+        ref_stats = fit_reference_stats(data)
+        data = engineer_with_reference(data, ref_stats)
         yr = data['cpp']
         R = data[feats]
         
+        # Build the query features fresh for EACH classifier (previously
+        # S0 was built once and reused/re-transformed across both
+        # classifiers), and rank them against the FIXED reference scale
+        # learned from the training data above -- never against each other.
+        S0 = datset_builder(peps,[])
         S0 = add_corr(S0,adds,subs)
-        S0 = engineer(S0, 0.9)    
+        S0 = engineer_with_reference(S0, ref_stats)
         S = S0[feats]    
         
         model.fit(R,yr)    
@@ -328,7 +393,7 @@ else:
     print('"',fasta_file,'"', "doesn't exist in the current/specified directory")
     print("Possible causes: Wrong spelling, Missing file extension, or Wrong path")
 print('_____________________________________________________________')
+
+
+
 print('=============================================================\n\n')
-
-
-
